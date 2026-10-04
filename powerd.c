@@ -60,6 +60,12 @@
 #define DEFAULT_IDLE_PERCENT	50
 #define DEFAULT_POLL_INTERVAL	250	/* Poll interval in milliseconds */
 
+/* on 16.x these values should be 0/64/128/255 correspondingly */
+#define EPP_MIN		0	/* maximum performance */
+#define EPP_PERF	25	/* performance */
+#define EPP_BALANCED	50	/* balanced */
+#define EPP_MAX		100	/* power saving */
+
 typedef enum {
 	MODE_MIN,
 	MODE_ADAPTIVE,
@@ -300,6 +306,40 @@ set_epp(int detected_arch, int maxid, int val)
 	}
 
 	return (0);
+}
+
+static int
+calc_epp(int mode, int load)
+{
+	int lo, hi, epp;
+
+	switch (mode) {
+	case MODE_MIN:
+		return (EPP_MAX);
+	case MODE_MAX:
+		return (EPP_MIN);
+	case MODE_ADAPTIVE:
+		lo = EPP_MAX;   /* power saving when idle */
+		hi = EPP_PERF;  /* performance-biased when busy */
+		break;
+	case MODE_HIADAPTIVE:
+		lo = EPP_BALANCED; /* balanced when idle */
+		hi = EPP_MIN;      /* max performance when busy */
+		break;
+	default:
+		return (EPP_BALANCED);
+	}
+
+	if (load <= cpu_idle_mark)
+		return (lo);
+	if (load >= cpu_running_mark)
+		return (hi);
+
+	/* Find a reasonable value between lo and hi. */
+	epp = lo - (lo - hi) * (load - cpu_idle_mark) /
+	    (cpu_running_mark - cpu_idle_mark);
+
+	return (epp);
 }
 
 static int
