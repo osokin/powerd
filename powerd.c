@@ -3,7 +3,7 @@
  *
  * Copyright (c) 2004 Colin Percival
  * Copyright (c) 2005 Nate Lawson
- * Copyright (c) 2025 Sergey A. Osokin
+ * Copyright (c) 2026 Sergey A. Osokin
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
