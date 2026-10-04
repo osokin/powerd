@@ -3,6 +3,7 @@
  *
  * Copyright (c) 2004 Colin Percival
  * Copyright (c) 2005 Nate Lawson
+ * Copyright (c) 2025 Sergey A. Osokin
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -78,11 +79,17 @@ static const char *modes[] = {
 	"unknown"
 };
 
+static const char *arch[2] = {
+	"amd",
+	"intel"
+};
+
 #define ACPIAC		"hw.acpi.acline"
 #define PMUAC		"dev.pmu.0.acline"
 #define APMDEV		"/dev/apm"
 #define DEVDPIPE	"/var/run/devd.pipe"
 #define DEVCTL_MAXBUF	1024
+#define HWPSTATE	"dev.hwpstate_%s"
 
 static int	read_usage_times(int *load, int nonice);
 static int	read_freqs(int *numfreqs, int **freqs, int **power,
@@ -245,6 +252,27 @@ read_freqs(int *numfreqs, int **freqs, int **power, int minfreq, int maxfreq)
 
 	free(freqstr);
 	return (0);
+}
+
+static int
+get_arch(int *detected_arch)
+{
+	char buf[64];
+	int i;
+	size_t size;
+
+	for (i = 0; i < (int)nitems(arch); i++) {
+		size = 0;
+		snprintf(buf, sizeof(buf), HWPSTATE ".0.%%desc", arch[i]);
+		if (sysctlbyname(buf, NULL, &size, NULL, 0) == 0) {
+			*detected_arch = i;
+			return (0);
+		}
+		if (errno != ENOENT)
+			return (-1);
+	}
+
+	return (-1);
 }
 
 static int
