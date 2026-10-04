@@ -114,6 +114,7 @@ static size_t	acline_mib_len;
 static int	cpu_running_mark;
 static int	cpu_idle_mark;
 static int	poll_ival;
+static int	eflag;
 static int	vflag;
 
 static volatile sig_atomic_t exit_requested;
@@ -531,7 +532,7 @@ usage(void)
 {
 
 	fprintf(stderr,
-"usage: powerd [-v] [-a mode] [-b mode] [-i %%] [-m freq] [-M freq] [-N] [-n mode] [-p ival] [-r %%] [-s source] [-P pidfile]\n");
+"usage: powerd [-v] [-a mode] [-b mode] [-e] [-i %%] [-m freq] [-M freq] [-N] [-n mode] [-p ival] [-r %%] [-s source] [-P pidfile]\n");
 	exit(1);
 }
 
@@ -549,6 +550,7 @@ main(int argc, char * argv[])
 	uint64_t mjoules_used;
 	size_t len;
 	int nonice;
+	int detected_arch, maxid;
 
 	/* Default mode for all AC states is adaptive. */
 	mode_ac = mode_none = MODE_HIADAPTIVE;
@@ -557,20 +559,26 @@ main(int argc, char * argv[])
 	cpu_idle_mark = DEFAULT_IDLE_PERCENT;
 	poll_ival = DEFAULT_POLL_INTERVAL;
 	mjoules_used = 0;
+	eflag = 0;
 	vflag = 0;
 	nonice = 0;
+	detected_arch = -1;
+	maxid = 0;
 
 	/* User must be root to control frequencies. */
 	if (geteuid() != 0)
 		errx(1, "must be root to run");
 
-	while ((ch = getopt(argc, argv, "a:b:i:m:M:Nn:p:P:r:s:v")) != -1)
+	while ((ch = getopt(argc, argv, "a:b:ei:m:M:Nn:p:P:r:s:v")) != -1)
 		switch (ch) {
 		case 'a':
 			parse_mode(optarg, &mode_ac, ch);
 			break;
 		case 'b':
 			parse_mode(optarg, &mode_battery, ch);
+			break;
+		case 'e':
+			eflag = 1;
 			break;
 		case 's':
 			parse_acline_mode(optarg, ch);
@@ -629,6 +637,19 @@ main(int argc, char * argv[])
 		default:
 			usage();
 		}
+
+	if (eflag) {
+		if (get_arch(&detected_arch) != 0)
+			errx(1, "no hwpstate_amd(4) or hwpstate_intel(4) "
+			    "attached; cannot enable EPP");
+		len = sizeof(maxid);
+		if (sysctlbyname("kern.smp.maxid", &maxid, &len, NULL, 0) < 0)
+			err(1, "sysctlbyname(kern.smp.maxid)");
+		if (vflag)
+			warnx("EPP enabled via hwpstate_%s(4), "
+			    "%d CPU(s)", arch[detected_arch], maxid + 1);
+	}
+
 
 	mode = mode_none;
 
