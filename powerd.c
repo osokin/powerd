@@ -551,6 +551,7 @@ main(int argc, char * argv[])
 	size_t len;
 	int nonice;
 	int detected_arch, maxid;
+	int has_cpufreq;
 
 	/* Default mode for all AC states is adaptive. */
 	mode_ac = mode_none = MODE_HIADAPTIVE;
@@ -660,20 +661,28 @@ main(int argc, char * argv[])
 	len = 2;
 	if (sysctlnametomib("kern.cp_times", cp_times_mib, &len))
 		err(1, "lookup kern.cp_times");
+
+	/* cpufreq(4) is optional when EPP is enabled */
+	has_cpufreq = 0;
 	len = 4;
-	if (sysctlnametomib("dev.cpu.0.freq", freq_mib, &len))
+	if (sysctlnametomib("dev.cpu.0.freq", freq_mib, &len) == 0) {
 		err(EX_UNAVAILABLE, "no cpufreq(4) support -- aborting");
-	len = 4;
-	if (sysctlnametomib("dev.cpu.0.freq_levels", levels_mib, &len))
-		err(1, "lookup freq_levels");
+		len = 4;
+		if (sysctlnametomib("dev.cpu.0.freq_levels", levels_mib, &len) == 0)
+			has_cpufreq = 1;
+	}
+	if (!has_cpufreq && !eflag)
+		errx(EX_UNAVAILABLE, "no cpufreq(4) support and EPP not enabled (-e)");
 
 	/* Check if we can read the load and supported freqs. */
 	if (read_usage_times(NULL, nonice))
 		err(1, "read_usage_times");
-	if (read_freqs(&numfreqs, &freqs, &mwatts, minfreq, maxfreq))
-		err(1, "error reading supported CPU frequencies");
-	if (numfreqs == 0)
-		errx(1, "no CPU frequencies in user-specified range");
+	if (has_cpufreq) {
+		if (read_freqs(&numfreqs, &freqs, &mwatts, minfreq, maxfreq))
+			err(1, "error reading supported CPU frequencies");
+		if (numfreqs == 0)
+			errx(1, "no CPU frequencies in user-specified range");
+	}
 
 	/* Run in the background unless in verbose mode. */
 	if (!vflag) {
@@ -705,10 +714,12 @@ main(int argc, char * argv[])
 	signal(SIGINT, handle_sigs);
 	signal(SIGTERM, handle_sigs);
 
-	freq = initfreq = curfreq = get_freq();
-	i = get_freq_id(curfreq, freqs, numfreqs);
-	if (freq < 1)
-		freq = 1;
+	if (has_cpufreq) {
+		freq = initfreq = curfreq = get_freq();
+		i = get_freq_id(curfreq, freqs, numfreqs);
+		if (freq < 1)
+			freq = 1;
+	}
 
 	/*
 	 * If we are in adaptive mode and the current frequency is outside the
@@ -717,12 +728,13 @@ main(int argc, char * argv[])
 	acline_read();
 	if (acline_status > SRC_UNKNOWN)
 		errx(1, "invalid AC line status %d", acline_status);
-	if ((acline_status == SRC_AC &&
+	if (has_cpufreq &&
+	    ((acline_status == SRC_AC &&
 	    (mode_ac == MODE_ADAPTIVE || mode_ac == MODE_HIADAPTIVE)) ||
 	    (acline_status == SRC_BATTERY &&
 	    (mode_battery == MODE_ADAPTIVE || mode_battery == MODE_HIADAPTIVE)) ||
 	    (acline_status == SRC_UNKNOWN &&
-	    (mode_none == MODE_ADAPTIVE || mode_none == MODE_HIADAPTIVE))) {
+	    (mode_none == MODE_ADAPTIVE || mode_none == MODE_HIADAPTIVE)))) {
 		/* Read the current frequency. */
 		len = sizeof(curfreq);
 		if (sysctl(freq_mib, 4, &curfreq, &len, NULL, 0) != 0) {
@@ -798,13 +810,13 @@ main(int argc, char * argv[])
 		}
 
 		/* Read the current frequency. */
-		if (idle % 32 == 0) {
+		if (has_cpufreq && idle % 32 == 0) {
 			if ((curfreq = get_freq()) == 0)
 				continue;
 			i = get_freq_id(curfreq, freqs, numfreqs);
 		}
 		idle++;
-		if (vflag) {
+		if (vflag && has_cpufreq) {
 			/* Keep a sum of all power actually used. */
 			if (mwatts[i] != -1)
 				mjoules_used +=
@@ -812,7 +824,7 @@ main(int argc, char * argv[])
 		}
 
 		/* Always switch to the lowest frequency in min mode. */
-		if (mode == MODE_MIN) {
+		if (has_cpufreq && mode == MODE_MIN) {
 			freq = freqs[numfreqs - 1];
 			if (curfreq != freq) {
 				if (vflag) {
@@ -827,11 +839,10 @@ main(int argc, char * argv[])
 					continue;
 				}
 			}
-			continue;
 		}
 
 		/* Always switch to the highest frequency in max mode. */
-		if (mode == MODE_MAX) {
+		if (has_cpufreq && mode == MODE_MAX) {
 			freq = freqs[0];
 			if (curfreq != freq) {
 				if (vflag) {
@@ -846,7 +857,6 @@ main(int argc, char * argv[])
 					continue;
 				}
 			}
-			continue;
 		}
 
 		/* Adaptive mode; get the current CPU usage times. */
@@ -906,10 +916,12 @@ main(int argc, char * argv[])
 				    freqs[j]);
 		}
 	}
-	if (set_freq(initfreq))
-		warn("error setting CPU frequency %d", initfreq);
-	free(freqs);
-	free(mwatts);
+	if (has_cpufreq) {
+		if (set_freq(initfreq))
+			warn("error setting CPU frequency %d", initfreq);
+		free(freqs);
+		free(mwatts);
+	}
 	devd_close();
 	if (!vflag)
 		pidfile_remove(pfh);
