@@ -590,7 +590,7 @@ main(int argc, char * argv[])
 	uint64_t mjoules_used;
 	size_t len;
 	int nonice;
-	int detected_arch, maxid;
+	int detected_arch, maxid, cur_epp, new_epp;
 	int has_cpufreq;
 
 	/* Default mode for all AC states is adaptive. */
@@ -605,6 +605,7 @@ main(int argc, char * argv[])
 	nonice = 0;
 	detected_arch = -1;
 	maxid = 0;
+	cur_epp = -1;
 
 	/* User must be root to control frequencies. */
 	if (geteuid() != 0)
@@ -879,6 +880,24 @@ main(int argc, char * argv[])
 				}
 			}
 			continue;
+		}
+
+		if (eflag) {
+			if (mode == MODE_MIN || mode == MODE_MAX) {
+				new_epp = calc_epp(mode, 0);
+				if (new_epp != cur_epp) {
+					if (set_epp(detected_arch, maxid, new_epp) == 0)
+						cur_epp = new_epp;
+				}
+				if (!has_cpufreq)
+					continue;
+			} else if (mode == MODE_ADAPTIVE || mode == MODE_HIADAPTIVE) {
+				new_epp = calc_epp(mode, load);
+				if (new_epp != cur_epp) {
+					if (set_epp(detected_arch, maxid, new_epp) == 0)
+						cur_epp = new_epp;
+				}
+			}
 		}
 
 		/* Always switch to the highest frequency in max mode. */
