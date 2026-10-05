@@ -286,26 +286,19 @@ static int
 set_epp(int detected_arch, int maxid, int val)
 {
 	char buf[64];
-	int i, err;
+	int i, error = 0;
 
 	for (i = 0; i <= maxid; i++) {
 		snprintf(buf, sizeof(buf), HWPSTATE ".%d.epp",
 		    arch[detected_arch], i);
 		if (sysctlbyname(buf, NULL, NULL, &val,
 		    sizeof(val)) < 0) {
-			err = errno;
-			if (err == EINVAL) {
-				if (vflag)
-					warnc(err, "%s", buf);
-			}
-			if (vflag)
-				warn("set EPP %s", buf);
-
-			return (-1);
+			warn("set EPP %s", buf);
+			error = -1;
 		}
 	}
 
-	return (0);
+	return (error);
 }
 
 static int
