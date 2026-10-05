@@ -68,11 +68,10 @@
 #define DEFAULT_IDLE_PERCENT	50
 #define DEFAULT_POLL_INTERVAL	250	/* Poll interval in milliseconds */
 
-/* on 16.x these values should be 0/64/128/255 correspondingly */
 #define EPP_MIN		0	/* maximum performance */
-#define EPP_PERF	25	/* performance */
-#define EPP_BALANCED	50	/* balanced */
-#define EPP_MAX		100	/* power saving */
+#define EPP_PERF	64
+#define EPP_BALANCED	128
+#define EPP_MAX		255	/* maximum efficiency */
 
 typedef enum {
 	MODE_MIN,
