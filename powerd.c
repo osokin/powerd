@@ -347,6 +347,16 @@ calc_epp(int mode, int load)
 	return (epp);
 }
 
+static void
+apply_epp(int detected_arch, int maxid, int mode, int load, int *cur_epp)
+{
+	int epp;
+
+	epp = calc_epp(mode, load);
+	if (epp != *cur_epp && set_epp(detected_arch, maxid, epp) == 0)
+		*cur_epp = epp;
+}
+
 static int
 get_freq(void)
 {
@@ -670,7 +680,7 @@ main(int argc, char * argv[])
 	uint64_t mjoules_used;
 	size_t len;
 	int nonice;
-	int detected_arch, maxid, cur_epp, new_epp;
+	int detected_arch, maxid, cur_epp;
 	int has_cpufreq;
 
 	/* Default mode for all AC states is adaptive. */
@@ -945,6 +955,10 @@ main(int argc, char * argv[])
 				    (mwatts[i] * (poll_ival / 1000)) / 1000;
 		}
 
+		/* Min and max modes do not depend on the load. */
+		if (eflag && (mode == MODE_MIN || mode == MODE_MAX))
+			apply_epp(detected_arch, maxid, mode, 0, &cur_epp);
+
 		/* Always switch to the lowest frequency in min mode. */
 		if (has_cpufreq && mode == MODE_MIN) {
 			freq = freqs[numfreqs - 1];
@@ -962,24 +976,6 @@ main(int argc, char * argv[])
 				}
 			}
 			continue;
-		}
-
-		if (eflag) {
-			if (mode == MODE_MIN || mode == MODE_MAX) {
-				new_epp = calc_epp(mode, 0);
-				if (new_epp != cur_epp) {
-					if (set_epp(detected_arch, maxid, new_epp) == 0)
-						cur_epp = new_epp;
-				}
-				if (!has_cpufreq)
-					continue;
-			} else if (mode == MODE_ADAPTIVE || mode == MODE_HIADAPTIVE) {
-				new_epp = calc_epp(mode, load);
-				if (new_epp != cur_epp) {
-					if (set_epp(detected_arch, maxid, new_epp) == 0)
-						cur_epp = new_epp;
-				}
-			}
 		}
 
 		/* Always switch to the highest frequency in max mode. */
@@ -1001,12 +997,20 @@ main(int argc, char * argv[])
 			continue;
 		}
 
+		if (mode == MODE_MIN || mode == MODE_MAX)
+			continue;	/* no cpufreq(4), EPP already set */
+
 		/* Adaptive mode; get the current CPU usage times. */
 		if (read_usage_times(&load, nonice)) {
 			if (vflag)
 				warn("read_usage_times() failed");
 			continue;
 		}
+
+		if (eflag)
+			apply_epp(detected_arch, maxid, mode, load, &cur_epp);
+		if (!has_cpufreq)
+			continue;
 
 		if (mode == MODE_ADAPTIVE) {
 			if (load > cpu_running_mark) {
