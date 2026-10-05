@@ -96,9 +96,8 @@ Selects the
 to use while on battery power.
 .It Fl e
 Selects the Energy/Performance Preference management model
-for AMD and Intel CPUs.  Required
-.Xr hwpstate_amd 4
-or
+for AMD and Intel CPUs.
+Requires a CPU driven by
 .Xr hwpstate_intel 4
 enabled.
 .It Fl i Ar percent
@@ -150,7 +149,6 @@ The default PID file.
 .Xr acpi 4 ,
 .Xr apm 4 ,
 .Xr cpufreq 4 ,
-.Xr hwpstate_amd 4 ,
 .Xr hwpstate_intel 4 ,
 .Xr rc.conf 5
 .Sh HISTORY
@@ -172,8 +170,6 @@ then updated it for
 added features, and wrote this manual page.
 .An Sergey A. Osokin
 then updated it for
-.Xr hwpstate_amd 4
-and
 .Xr hwpstate_intel 4
 support.
 .Sh BUGS
