@@ -329,12 +329,7 @@ set_epp(int detected_arch, int maxid, int val)
 		    arch[detected_arch], i);
 		if (sysctlbyname(buf, NULL, NULL, &val,
 		    sizeof(val)) < 0) {
-			if (errno == EINVAL) {
-				if (vflag)
-					warnc(errno, "%s", buf);
-			}
-			if (vflag)
-				warn("set EPP %s", buf);
+			warn("set EPP %s", buf);
 			error = -1;
 		}
 	}
@@ -405,11 +400,11 @@ apply_epp(int detected_arch, int maxid, int mode, int load, int *cur_epp)
 	epp = calc_epp(mode, load);
 	if (epp != *cur_epp) {
 		(void)set_epp(detected_arch, maxid, epp);
-		*cur_epp = epp; /* do not retry (and warn on every poll */
+		*cur_epp = epp; /* do not retry (and warn) on every poll */
 		if (vflag)
 			printf("now operating on %s power; "
 			    "setting EPP to %d\n",
-			    modes[mode], epp);
+			    modes[acline_status], epp);
 	}
 }
 
@@ -872,10 +867,15 @@ main(int argc, char * argv[])
 	len = 4;
 	if (sysctlnametomib("dev.cpu.0.freq", freq_mib, &len) == 0) {
 		len = 4;
-		if (sysctlnametomib("dev.cpu.0.freq_levels", levels_mib, &len) == 0 &&
-		    read_freqs(&numfreqs, &freqs, &mwatts, minfreq, maxfreq) == 0 &&
-		    numfreqs > 0)
+		if (sysctlnametomib("dev.cpu.0.freq_levels", levels_mib, &len) == 0)
 			has_cpufreq = 1;
+	}
+	if (has_cpufreq) {
+		/* An information-only driver has no levels to read. */
+		if (read_freqs(&numfreqs, &freqs, &mwatts, minfreq, maxfreq) != 0)
+			has_cpufreq = 0;
+		else if (numfreqs == 0)
+			errx(1, "no CPU frequencies in user-specified range");
 	}
 	if (!has_cpufreq && !eflag)
 		errx(EX_UNAVAILABLE, "no usable cpufreq(4) support; try -e");
@@ -883,12 +883,6 @@ main(int argc, char * argv[])
 	/* Check if we can read the load and supported freqs. */
 	if (read_usage_times(NULL, nonice))
 		err(1, "read_usage_times");
-	if (has_cpufreq) {
-		if (read_freqs(&numfreqs, &freqs, &mwatts, minfreq, maxfreq))
-			err(1, "error reading supported CPU frequencies");
-		if (numfreqs == 0)
-			errx(1, "no CPU frequencies in user-specified range");
-	}
 
 	/* Run in the background unless in verbose mode. */
 	if (!vflag) {
