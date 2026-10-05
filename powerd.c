@@ -347,7 +347,7 @@ restore_epp(int detected_arch, const int *v)
 		snprintf(buf, sizeof(buf), HWPSTATE ".%d.epp",
 		    arch[detected_arch], i);
 		if (sysctlbyname(buf, NULL, NULL, &v[i],
-		    sizeof(v)) < 0) {
+		    sizeof(v[i])) < 0) {
 			if (errno == EINVAL) {
 				if (vflag)
 					warnc(errno, "%s", buf);
