@@ -731,9 +731,7 @@ main(int argc, char * argv[])
 	uint64_t mjoules_used;
 	size_t len;
 	int nonice;
-	int detected_arch, maxid, cur_epp;
-	int has_cpufreq;
-	int *cpus = NULL, n, *v;
+	int detected_arch, maxid, cur_epp, has_cpufreq, *v;
 
 	/* Default mode for all AC states is adaptive. */
 	mode_ac = mode_none = MODE_HIADAPTIVE;
@@ -833,20 +831,13 @@ main(int argc, char * argv[])
 			warnx("EPP enabled via hwpstate_%s(4), "
 			    "%d CPU(s)", arch[detected_arch], maxid + 1);
 
-		cpus = calloc(maxid + 1, sizeof(*cpus));
-		if (cpus == NULL)
-			err(1, "calloc");
-		for (i = 0; i <= maxid; i++)
-			cpus[i] = i;
-		n = maxid + 1;
-
-		v = calloc(n, sizeof(*v));
+		v = calloc(maxid + 1, sizeof(*v));
 		if (v == NULL)
 			err(1, "calloc");
 
-		for (i = 0; i < n; i++) {
-			if ((v[i] = get_one_epp(detected_arch, cpus[i])) == -2) {
-				errx(1, "cpu %d: no EPP control", cpus[i]);
+		for (i = 0; i <= maxid; i++) {
+			if ((v[i] = get_one_epp(detected_arch, i)) == -2) {
+				errx(1, "cpu %d: no EPP control", i);
 			} else if (v[i] < 0)
 				exit(1);
 		}
@@ -1142,7 +1133,6 @@ main(int argc, char * argv[])
 	if (eflag) {
 		restore_epp(detected_arch, maxid, v);
 		free(v);
-		free(cpus);
 	}
 	devd_close();
 	if (!vflag)
