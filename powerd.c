@@ -352,8 +352,9 @@ apply_epp(int detected_arch, int maxid, int mode, int load, int *cur_epp)
 	int epp;
 
 	epp = calc_epp(mode, load);
-	if (epp != *cur_epp && set_epp(detected_arch, maxid, epp) == 0)
-		*cur_epp = epp;
+	if (epp != *cur_epp) {
+		(void)set_epp(detected_arch, maxid, epp);
+		*cur_epp = epp; /* do not retry (and warn on every poll */
 }
 
 static int
