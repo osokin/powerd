@@ -338,12 +338,12 @@ set_epp(int detected_arch, int maxid, int val)
 }
 
 static void
-restore_epp(int detected_arch, const int *v)
+restore_epp(int detected_arch, int maxid, const int *v)
 {
 	char buf[64];
 	int i;
 
-	for (i = 0; i < (int)nitems(&v); i++) {
+	for (i = 0; i <= maxid; i++) {
 		snprintf(buf, sizeof(buf), HWPSTATE ".%d.epp",
 		    arch[detected_arch], i);
 		if (sysctlbyname(buf, NULL, NULL, &v[i],
@@ -1140,7 +1140,7 @@ main(int argc, char * argv[])
 		free(mwatts);
 	}
 	if (eflag) {
-		restore_epp(detected_arch, v);
+		restore_epp(detected_arch, maxid, v);
 		free(v);
 		free(cpus);
 	}
