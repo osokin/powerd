@@ -706,7 +706,6 @@ main(int argc, char * argv[])
 	has_cpufreq = 0;
 	len = 4;
 	if (sysctlnametomib("dev.cpu.0.freq", freq_mib, &len) == 0) {
-		err(EX_UNAVAILABLE, "no cpufreq(4) support -- aborting");
 		len = 4;
 		if (sysctlnametomib("dev.cpu.0.freq_levels", levels_mib, &len) == 0)
 			has_cpufreq = 1;
@@ -879,6 +878,7 @@ main(int argc, char * argv[])
 					continue;
 				}
 			}
+			continue;
 		}
 
 		/* Always switch to the highest frequency in max mode. */
@@ -897,6 +897,7 @@ main(int argc, char * argv[])
 					continue;
 				}
 			}
+			continue;
 		}
 
 		/* Adaptive mode; get the current CPU usage times. */
