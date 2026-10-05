@@ -797,11 +797,13 @@ main(int argc, char * argv[])
 	len = 4;
 	if (sysctlnametomib("dev.cpu.0.freq", freq_mib, &len) == 0) {
 		len = 4;
-		if (sysctlnametomib("dev.cpu.0.freq_levels", levels_mib, &len) == 0)
+		if (sysctlnametomib("dev.cpu.0.freq_levels", levels_mib, &len) == 0 &&
+		    read_freqs(&numfreqs, &freqs, &mwatts, minfreq, maxfreq) == 0 &&
+		    numfreqs > 0)
 			has_cpufreq = 1;
 	}
 	if (!has_cpufreq && !eflag)
-		errx(EX_UNAVAILABLE, "no cpufreq(4) support and EPP not enabled (-e)");
+		errx(EX_UNAVAILABLE, "no usable cpufreq(4) support; try -e");
 
 	/* Check if we can read the load and supported freqs. */
 	if (read_usage_times(NULL, nonice))
