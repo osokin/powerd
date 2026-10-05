@@ -99,7 +99,8 @@ Selects the Energy/Performance Preference management model
 for AMD and Intel CPUs.
 Requires a CPU driven by
 .Xr hwpstate_intel 4
-enabled.
+on Intel CPUs, or the hwpstate_amd driver on AMD CPUs.
+cpufreq is optional when this option is used.
 .It Fl i Ar percent
 Specifies the CPU load percent level when adaptive
 mode should begin to degrade performance to save power.
