@@ -294,6 +294,31 @@ get_arch(int *detected_arch)
 }
 
 static int
+get_one_epp(int detected_arch, int cpuid)
+{
+	size_t size;
+	char buf[64];
+	int val = 0;
+
+	size = sizeof(val);
+	snprintf(buf, sizeof(buf), "dev.hwpstate_%s.%d.epp",
+	    arch[detected_arch], cpuid);
+
+	if (sysctlbyname(buf, &val, &size, NULL, 0) < 0) {
+		if (errno == ENOENT) {
+			if (vflag)
+				warnc(errno, "%s", buf);
+			return (-2);
+		}
+		if (vflag)
+			warn("sysctlbyname(%s)", buf);
+		return (-1);
+	}
+
+	return (val);
+}
+
+static int
 set_epp(int detected_arch, int maxid, int val)
 {
 	char buf[64];
@@ -692,6 +717,7 @@ main(int argc, char * argv[])
 	int nonice;
 	int detected_arch, maxid, cur_epp;
 	int has_cpufreq;
+	int *cpus = NULL, n, *v;
 
 	/* Default mode for all AC states is adaptive. */
 	mode_ac = mode_none = MODE_HIADAPTIVE;
@@ -790,6 +816,24 @@ main(int argc, char * argv[])
 		if (vflag)
 			warnx("EPP enabled via hwpstate_%s(4), "
 			    "%d CPU(s)", arch[detected_arch], maxid + 1);
+
+		cpus = calloc(maxid + 1, sizeof(*cpus));
+		if (cpus == NULL)
+			err(1, "calloc");
+		for (i = 0; i <= maxid; i++)
+			cpus[i] = i;
+		n = maxid + 1;
+
+		v = calloc(n, sizeof(*v));
+		if (v == NULL)
+			err(1, "calloc");
+
+		for (i = 0; i < n; i++) {
+			if ((v[i] = get_one_epp(detected_arch, cpus[i])) == -2) {
+				errx(1, "cpu %d: no EPP control", cpus[i]);
+			} else if (v[i] < 0)
+				exit(1);
+		}
 	}
 
 	mode = mode_none;
@@ -1079,6 +1123,11 @@ main(int argc, char * argv[])
 			warn("error setting CPU frequency %d", initfreq);
 		free(freqs);
 		free(mwatts);
+	}
+	if (eflag) {
+		/* restore initial CPUs values */
+		free(v);
+		free(cpus);
 	}
 	devd_close();
 	if (!vflag)
