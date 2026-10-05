@@ -305,13 +305,9 @@ get_one_epp(int detected_arch, int cpuid)
 	    arch[detected_arch], cpuid);
 
 	if (sysctlbyname(buf, &val, &size, NULL, 0) < 0) {
-		if (errno == ENOENT) {
-			if (vflag)
-				warnc(errno, "%s", buf);
+		if (errno == ENOENT)
 			return (-2);
-		}
-		if (vflag)
-			warn("sysctlbyname(%s)", buf);
+		warn("read EPP %s", buf);
 		return (-1);
 	}
 
@@ -348,12 +344,7 @@ restore_epp(int detected_arch, int maxid, const int *v)
 		    arch[detected_arch], i);
 		if (sysctlbyname(buf, NULL, NULL, &v[i],
 		    sizeof(v[i])) < 0) {
-			if (errno == EINVAL) {
-				if (vflag)
-					warnc(errno, "%s", buf);
-			}
-			if (vflag)
-				warn("restore EPP %s", buf);
+			warn("restore EPP %s", buf);
 		}
 	}
 }
