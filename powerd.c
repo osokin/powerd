@@ -304,7 +304,12 @@ set_epp(int detected_arch, int maxid, int val)
 		    arch[detected_arch], i);
 		if (sysctlbyname(buf, NULL, NULL, &val,
 		    sizeof(val)) < 0) {
-			warn("set EPP %s", buf);
+			if (errno == EINVAL) {
+				if (vflag)
+					warnc(errno, "%s", buf);
+			}
+			if (vflag)
+				warn("set EPP %s", buf);
 			error = -1;
 		}
 	}
@@ -355,6 +360,11 @@ apply_epp(int detected_arch, int maxid, int mode, int load, int *cur_epp)
 	if (epp != *cur_epp) {
 		(void)set_epp(detected_arch, maxid, epp);
 		*cur_epp = epp; /* do not retry (and warn on every poll */
+		if (vflag)
+			printf("now operating on %s power; "
+			    "setting EPP to %d\n",
+			    modes[mode], epp);
+	}
 }
 
 static int
