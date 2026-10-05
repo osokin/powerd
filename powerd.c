@@ -685,7 +685,6 @@ main(int argc, char * argv[])
 			    "%d CPU(s)", arch[detected_arch], maxid + 1);
 	}
 
-
 	mode = mode_none;
 
 	/* Poll interval is in units of ms. */
