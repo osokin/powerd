@@ -342,6 +342,27 @@ set_epp(int detected_arch, int maxid, int val)
 	return (error);
 }
 
+static void
+restore_epp(int detected_arch, const int *v)
+{
+	char buf[64];
+	int i;
+
+	for (i = 0; i < (int)nitems(&v); i++) {
+		snprintf(buf, sizeof(buf), HWPSTATE ".%d.epp",
+		    arch[detected_arch], i);
+		if (sysctlbyname(buf, NULL, NULL, &v[i],
+		    sizeof(v)) < 0) {
+			if (errno == EINVAL) {
+				if (vflag)
+					warnc(errno, "%s", buf);
+			}
+			if (vflag)
+				warn("restore EPP %s", buf);
+		}
+	}
+}
+
 static int
 calc_epp(int mode, int load)
 {
@@ -1125,7 +1146,7 @@ main(int argc, char * argv[])
 		free(mwatts);
 	}
 	if (eflag) {
-		/* restore initial CPUs values */
+		restore_epp(detected_arch, v);
 		free(v);
 		free(cpus);
 	}
