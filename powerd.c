@@ -728,7 +728,7 @@ main(int argc, char * argv[])
 	uint64_t mjoules_used;
 	size_t len;
 	int nonice;
-	int detected_arch, maxid, cur_epp, has_cpufreq, nbad, *v;
+	int detected_arch, maxid, cur_epp, has_cpufreq, nbad, *v = NULL;
 
 	/* Default mode for all AC states is adaptive. */
 	mode_ac = mode_none = MODE_HIADAPTIVE;
