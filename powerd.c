@@ -306,7 +306,7 @@ get_one_epp(int detected_arch, int cpuid)
 
 	if (sysctlbyname(buf, &val, &size, NULL, 0) < 0) {
 		if (errno == ENOENT)
-			return (-2);
+			warn("cpu %d: no EPP control", cpuid);
 		warn("read EPP %s", buf);
 		return (-1);
 	}
@@ -340,6 +340,8 @@ restore_epp(int detected_arch, int maxid, const int *v)
 	int i;
 
 	for (i = 0; i <= maxid; i++) {
+		if (v[i] < 0) /* no EPP control */
+			continue;
 		snprintf(buf, sizeof(buf), HWPSTATE ".%d.epp",
 		    arch[detected_arch], i);
 		if (sysctlbyname(buf, NULL, NULL, &v[i],
@@ -722,7 +724,7 @@ main(int argc, char * argv[])
 	uint64_t mjoules_used;
 	size_t len;
 	int nonice;
-	int detected_arch, maxid, cur_epp, has_cpufreq, *v;
+	int detected_arch, maxid, cur_epp, has_cpufreq, ncpus, *v;
 
 	/* Default mode for all AC states is adaptive. */
 	mode_ac = mode_none = MODE_HIADAPTIVE;
@@ -737,6 +739,7 @@ main(int argc, char * argv[])
 	detected_arch = -1;
 	maxid = 0;
 	cur_epp = -1;
+	ncpus = 0;
 
 	/* User must be root to control frequencies. */
 	if (geteuid() != 0)
@@ -826,11 +829,15 @@ main(int argc, char * argv[])
 		if (v == NULL)
 			err(1, "calloc");
 
+		ncpus = 0;
 		for (i = 0; i <= maxid; i++) {
-			if ((v[i] = get_one_epp(detected_arch, i)) == -2) {
-				errx(1, "cpu %d: no EPP control", i);
-			} else if (v[i] < 0)
-				exit(1);
+			if ((v[i] = get_one_epp(detected_arch, i)) < 0)
+				ncpus++;
+		}
+		if (ncpus == (maxid + 1)) {
+			free(v);
+			errx(EX_UNAVAILABLE, "no usable hwpstate_%s(4) "
+			    "support; try without -e", arch[detected_arch]);
 		}
 	}
 
