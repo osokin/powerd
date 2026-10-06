@@ -110,13 +110,12 @@ have no effect.
 with a working
 .Xr cpufreq 4
 sets both controls.
-The initial EPP values are restored when
+The initial EPP values are restored only when
 .Nm
-exits with
+is stopped by
 .Dv SIGINT
 or
-.Dv SIGTERM
-only.
+.Dv SIGTERM .
 .It Fl i Ar percent
 Specifies the CPU load percent level when adaptive
 mode should begin to degrade performance to save power.
