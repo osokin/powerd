@@ -70,7 +70,7 @@
 
 #define EPP_MIN		0	/* maximum performance */
 #define EPP_PERF	64	/* half of balanced */
-#define EPP_BALANCED	128	/* balanced, default on boot */
+#define EPP_BALANCED	128	/* balanced */
 #define EPP_MAX		255	/* maximum efficiency */
 
 typedef enum {
