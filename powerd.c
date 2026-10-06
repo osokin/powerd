@@ -1023,7 +1023,8 @@ main(int argc, char * argv[])
 
 		/* Min and max modes do not depend on the load. */
 		if (eflag && (mode == MODE_MIN || mode == MODE_MAX))
-			apply_epp(detected_arch, maxid, v, mode, 0, &cur_epp);
+			apply_epp(detected_arch, maxid, v, mode, 0,
+			    &cur_epp);
 
 		/* Always switch to the lowest frequency in min mode. */
 		if (has_cpufreq && mode == MODE_MIN) {
