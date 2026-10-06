@@ -301,7 +301,7 @@ get_one_epp(int detected_arch, int cpuid)
 	int val = 0;
 
 	size = sizeof(val);
-	snprintf(buf, sizeof(buf), "dev.hwpstate_%s.%d.epp",
+	snprintf(buf, sizeof(buf), HWPSTATE ".%d.epp",
 	    arch[detected_arch], cpuid);
 
 	if (sysctlbyname(buf, &val, &size, NULL, 0) < 0) {
