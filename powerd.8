@@ -115,7 +115,14 @@ The initial EPP values are restored only when
 is stopped by
 .Dv SIGINT
 or
-.Dv SIGTERM .
+.Dv SIGTERM ;
+if
+.Nm
+is terminated by other signals, the EPP values will
+remain at their last modified state and must be
+restored manually via
+.Xr sysctl 8
+or by restarting the system.
 .It Fl i Ar percent
 Specifies the CPU load percent level when adaptive
 mode should begin to degrade performance to save power.
