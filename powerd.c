@@ -391,6 +391,9 @@ calc_epp(int mode, int load)
 	epp = lo - (lo - hi) * (load - idle_mark) /
 	    (running_mark - idle_mark);
 
+	/* Quantize to 16 levels */
+	epp &= ~0xf;
+
 	return (epp);
 }
 
