@@ -109,6 +109,8 @@ have no effect.
 The initial EPP values are restored when
 .Nm
 exits.
+There is no restore after a crash or
+.Dv SIGKILL .
 .It Fl i Ar percent
 Specifies the CPU load percent level when adaptive
 mode should begin to degrade performance to save power.
