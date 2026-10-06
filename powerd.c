@@ -306,8 +306,9 @@ get_one_epp(int detected_arch, int cpuid)
 
 	if (sysctlbyname(buf, &val, &size, NULL, 0) < 0) {
 		if (errno == ENOENT)
-			warn("cpu %d: no EPP control", cpuid);
-		warn("read EPP %s", buf);
+			warnx("cpu %d: no EPP control", cpuid);
+		else
+			warn("read EPP %s", buf);
 		return (-1);
 	}
 
@@ -315,12 +316,14 @@ get_one_epp(int detected_arch, int cpuid)
 }
 
 static int
-set_epp(int detected_arch, int maxid, int val)
+set_epp(int detected_arch, int maxid, const int *v, int val)
 {
 	char buf[64];
 	int i, error = 0;
 
 	for (i = 0; i <= maxid; i++) {
+		if (v[i] < 0)	/* no EPP control */
+			continue;
 		snprintf(buf, sizeof(buf), HWPSTATE ".%d.epp",
 		    arch[detected_arch], i);
 		if (sysctlbyname(buf, NULL, NULL, &val,
@@ -386,13 +389,14 @@ calc_epp(int mode, int load)
 }
 
 static void
-apply_epp(int detected_arch, int maxid, int mode, int load, int *cur_epp)
+apply_epp(int detected_arch, int maxid, const int *v, int mode, int load,
+    int *cur_epp)
 {
 	int epp;
 
 	epp = calc_epp(mode, load);
 	if (epp != *cur_epp) {
-		(void)set_epp(detected_arch, maxid, epp);
+		(void)set_epp(detected_arch, maxid, v, epp);
 		*cur_epp = epp; /* do not retry (and warn) on every poll */
 		if (vflag)
 			printf("now operating on %s power; "
@@ -724,7 +728,7 @@ main(int argc, char * argv[])
 	uint64_t mjoules_used;
 	size_t len;
 	int nonice;
-	int detected_arch, maxid, cur_epp, has_cpufreq, ncpus, *v;
+	int detected_arch, maxid, cur_epp, has_cpufreq, nbad, *v;
 
 	/* Default mode for all AC states is adaptive. */
 	mode_ac = mode_none = MODE_HIADAPTIVE;
@@ -739,7 +743,7 @@ main(int argc, char * argv[])
 	detected_arch = -1;
 	maxid = 0;
 	cur_epp = -1;
-	ncpus = 0;
+	nbad = 0;
 
 	/* User must be root to control frequencies. */
 	if (geteuid() != 0)
@@ -829,15 +833,15 @@ main(int argc, char * argv[])
 		if (v == NULL)
 			err(1, "calloc");
 
-		ncpus = 0;
+		nbad = 0;
 		for (i = 0; i <= maxid; i++) {
 			if ((v[i] = get_one_epp(detected_arch, i)) < 0)
-				ncpus++;
+				nbad++;
 		}
-		if (ncpus == (maxid + 1)) {
+		if (nbad == (maxid + 1)) {
 			free(v);
-			errx(EX_UNAVAILABLE, "no usable hwpstate_%s(4) "
-			    "support; try without -e", arch[detected_arch]);
+			errx(EX_UNAVAILABLE, "cannot read EPP of any CPU via "
+			    "hwpstate_%s(4)", arch[detected_arch]);
 		}
 	}
 
@@ -1017,7 +1021,7 @@ main(int argc, char * argv[])
 
 		/* Min and max modes do not depend on the load. */
 		if (eflag && (mode == MODE_MIN || mode == MODE_MAX))
-			apply_epp(detected_arch, maxid, mode, 0, &cur_epp);
+			apply_epp(detected_arch, maxid, v, mode, 0, &cur_epp);
 
 		/* Always switch to the lowest frequency in min mode. */
 		if (has_cpufreq && mode == MODE_MIN) {
@@ -1068,7 +1072,7 @@ main(int argc, char * argv[])
 		}
 
 		if (eflag)
-			apply_epp(detected_arch, maxid, mode, load, &cur_epp);
+			apply_epp(detected_arch, maxid, v, mode, load, &cur_epp);
 		if (!has_cpufreq)
 			continue;
 
