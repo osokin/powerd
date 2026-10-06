@@ -860,12 +860,14 @@ main(int argc, char * argv[])
 	len = 4;
 	if (sysctlnametomib("dev.cpu.0.freq", freq_mib, &len) == 0) {
 		len = 4;
-		if (sysctlnametomib("dev.cpu.0.freq_levels", levels_mib, &len) == 0)
+		if (sysctlnametomib("dev.cpu.0.freq_levels", levels_mib,
+		    &len) == 0)
 			has_cpufreq = 1;
 	}
 	if (has_cpufreq) {
 		/* An information-only driver has no levels to read. */
-		if (read_freqs(&numfreqs, &freqs, &mwatts, minfreq, maxfreq) != 0)
+		if (read_freqs(&numfreqs, &freqs, &mwatts, minfreq, maxfreq)
+		    != 0)
 			has_cpufreq = 0;
 		else if (numfreqs == 0)
 			errx(1, "no CPU frequencies in user-specified range");
