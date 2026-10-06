@@ -358,6 +358,10 @@ static int
 calc_epp(int mode, int load)
 {
 	int lo, hi, epp;
+	int idle_mark, running_mark;
+
+	idle_mark = cpu_idle_mark;
+	running_mark = cpu_running_mark;
 
 	switch (mode) {
 	case MODE_MIN:
@@ -367,6 +371,8 @@ calc_epp(int mode, int load)
 	case MODE_ADAPTIVE:
 		lo = EPP_MAX;   /* power saving when idle */
 		hi = EPP_PERF;  /* performance-biased when busy */
+		idle_mark = cpu_idle_mark / 2;
+		running_mark = cpu_running_mark / 2;
 		break;
 	case MODE_HIADAPTIVE:
 		lo = EPP_BALANCED; /* balanced when idle */
@@ -376,14 +382,14 @@ calc_epp(int mode, int load)
 		return (EPP_BALANCED);
 	}
 
-	if (load <= cpu_idle_mark)
+	if (load <= idle_mark)
 		return (lo);
-	if (load >= cpu_running_mark)
+	if (load >= running_mark)
 		return (hi);
 
 	/* Find a reasonable value between lo and hi. */
-	epp = lo - (lo - hi) * (load - cpu_idle_mark) /
-	    (cpu_running_mark - cpu_idle_mark);
+	epp = lo - (lo - hi) * (load - idle_mark) /
+	    (running_mark - idle_mark);
 
 	return (epp);
 }
