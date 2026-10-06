@@ -1075,7 +1075,8 @@ main(int argc, char * argv[])
 		}
 
 		if (eflag)
-			apply_epp(detected_arch, maxid, v, mode, load, &cur_epp);
+			apply_epp(detected_arch, maxid, v, mode,
+			    load, &cur_epp);
 		if (!has_cpufreq)
 			continue;
 
