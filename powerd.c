@@ -371,12 +371,12 @@ calc_epp(int mode, int load)
 	case MODE_ADAPTIVE:
 		lo = EPP_MAX;   /* power saving when idle */
 		hi = EPP_PERF;  /* performance-biased when busy */
-		idle_mark = cpu_idle_mark / 2;
-		running_mark = cpu_running_mark / 2;
 		break;
 	case MODE_HIADAPTIVE:
 		lo = EPP_BALANCED; /* balanced when idle */
 		hi = EPP_MIN;      /* max performance when busy */
+		idle_mark = cpu_idle_mark / 2;
+		running_mark = cpu_running_mark / 2;
 		break;
 	default:
 		return (EPP_BALANCED);
