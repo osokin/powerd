@@ -1,4 +1,4 @@
-
+PACKAGE=powerd
 PROG=	powerd
 MAN=	powerd.8
 

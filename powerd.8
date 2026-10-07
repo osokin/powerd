@@ -22,7 +22,7 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.Dd October 4, 2026
+.Dd October 6, 2026
 .Dt POWERD 8
 .Os
 .Sh NAME
@@ -96,11 +96,34 @@ Selects the
 to use while on battery power.
 .It Fl e
 Selects the Energy/Performance Preference management model
-for AMD and Intel CPUs.  Required
-.Xr hwpstate_amd(4)
+for AMD and Intel CPUs.
+Requires
+.Xr hwpstate_intel 4
+on Intel CPUs, or the hwpstate_amd driver on AMD CPUs.
+.Xr cpufreq 4
+is optional when this option is used; without it,
+.Fl m
+and
+.Fl M
+have no effect.
+.Fl e
+with a working
+.Xr cpufreq 4
+sets both controls.
+The EPP values may change on every poll.
+The initial EPP values are restored only when
+.Nm
+is stopped by
+.Dv SIGINT
 or
-.Xr hwpstate_intel(4)
-enabled.
+.Dv SIGTERM ;
+if
+.Nm
+is terminated by other signals, the EPP values will
+remain at their last modified state and must be
+restored manually via
+.Xr sysctl 8
+or by restarting the system.
 .It Fl i Ar percent
 Specifies the CPU load percent level when adaptive
 mode should begin to degrade performance to save power.
@@ -150,7 +173,6 @@ The default PID file.
 .Xr acpi 4 ,
 .Xr apm 4 ,
 .Xr cpufreq 4 ,
-.Xr hwpstate_amd 4 ,
 .Xr hwpstate_intel 4 ,
 .Xr rc.conf 5
 .Sh HISTORY
@@ -172,10 +194,15 @@ then updated it for
 added features, and wrote this manual page.
 .An Sergey A. Osokin
 then updated it for
-.Xr hwpstate_amd 4
-and
 .Xr hwpstate_intel 4
 support.
+.Sh CAVEATS
+The code for
+.Fl e
+assumes that hwpstate unit N belongs to CPU N for every id up to
+.Va kern.smp.maxid .
+A missing unit is handled, but a machine with shifted numbering
+would be controlled through the wrong units without any warning.
 .Sh BUGS
 The
 .Nm

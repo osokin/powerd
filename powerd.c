@@ -28,20 +28,28 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
 #include <sys/param.h>
 #include <sys/ioctl.h>
+#include <sys/linker.h>
+#include <sys/module.h>
 #include <sys/sysctl.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/un.h>
 
+#include <netlink/netlink.h>
+#include <netlink/netlink_generic.h>
+#include <netlink/netlink_snl.h>
+#include <netlink/netlink_snl_generic.h>
+#include <netlink/netlink_sysevent.h>
+
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <libutil.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -60,11 +68,10 @@
 #define DEFAULT_IDLE_PERCENT	50
 #define DEFAULT_POLL_INTERVAL	250	/* Poll interval in milliseconds */
 
-/* on 16.x these values should be 0/64/128/255 correspondingly */
 #define EPP_MIN		0	/* maximum performance */
-#define EPP_PERF	25	/* performance */
-#define EPP_BALANCED	50	/* balanced */
-#define EPP_MAX		100	/* power saving */
+#define EPP_PERF	64	/* half of balanced */
+#define EPP_BALANCED	128	/* balanced */
+#define EPP_MAX		255	/* maximum efficiency */
 
 typedef enum {
 	MODE_MIN,
@@ -102,7 +109,8 @@ static int	read_freqs(int *numfreqs, int **freqs, int **power,
 		    int minfreq, int maxfreq);
 static int	set_freq(int freq);
 static void	acline_init(void);
-static void	acline_read(void);
+static void	acline_read(int rfds);
+static bool	netlink_init(void);
 static int	devd_init(void);
 static void	devd_close(void);
 static void	handle_sigs(int sig);
@@ -132,6 +140,7 @@ typedef enum {
 #ifdef USE_APM
 	ac_apm,
 #endif
+	ac_acpi_netlink,
 } acline_mode_t;
 static acline_mode_t acline_mode;
 static acline_mode_t acline_mode_user = ac_none;
@@ -139,6 +148,8 @@ static acline_mode_t acline_mode_user = ac_none;
 static int	apm_fd = -1;
 #endif
 static int	devd_pipe = -1;
+static bool	try_netlink = true;
+static struct snl_state ss;
 
 #define DEVD_RETRY_INTERVAL 60 /* seconds */
 static struct timeval tried_devd;
@@ -283,12 +294,36 @@ get_arch(int *detected_arch)
 }
 
 static int
-set_epp(int detected_arch, int maxid, int val)
+get_one_epp(int detected_arch, int cpuid)
+{
+	size_t size;
+	char buf[64];
+	int val = 0;
+
+	size = sizeof(val);
+	snprintf(buf, sizeof(buf), HWPSTATE ".%d.epp",
+	    arch[detected_arch], cpuid);
+
+	if (sysctlbyname(buf, &val, &size, NULL, 0) < 0) {
+		if (errno == ENOENT)
+			warnx("cpu %d: no EPP control", cpuid);
+		else
+			warn("read EPP %s", buf);
+		return (-1);
+	}
+
+	return (val);
+}
+
+static int
+set_epp(int detected_arch, int maxid, const int *v, int val)
 {
 	char buf[64];
 	int i, error = 0;
 
 	for (i = 0; i <= maxid; i++) {
+		if (v[i] < 0)	/* no EPP control */
+			continue;
 		snprintf(buf, sizeof(buf), HWPSTATE ".%d.epp",
 		    arch[detected_arch], i);
 		if (sysctlbyname(buf, NULL, NULL, &val,
@@ -301,10 +336,32 @@ set_epp(int detected_arch, int maxid, int val)
 	return (error);
 }
 
+static void
+restore_epp(int detected_arch, int maxid, const int *v)
+{
+	char buf[64];
+	int i;
+
+	for (i = 0; i <= maxid; i++) {
+		if (v[i] < 0) /* no EPP control */
+			continue;
+		snprintf(buf, sizeof(buf), HWPSTATE ".%d.epp",
+		    arch[detected_arch], i);
+		if (sysctlbyname(buf, NULL, NULL, &v[i],
+		    sizeof(v[i])) < 0) {
+			warn("restore EPP %s", buf);
+		}
+	}
+}
+
 static int
 calc_epp(int mode, int load)
 {
 	int lo, hi, epp;
+	int idle_mark, running_mark;
+
+	idle_mark = cpu_idle_mark;
+	running_mark = cpu_running_mark;
 
 	switch (mode) {
 	case MODE_MIN:
@@ -318,21 +375,40 @@ calc_epp(int mode, int load)
 	case MODE_HIADAPTIVE:
 		lo = EPP_BALANCED; /* balanced when idle */
 		hi = EPP_MIN;      /* max performance when busy */
+		idle_mark = cpu_idle_mark / 2;
+		running_mark = cpu_running_mark / 2;
 		break;
 	default:
 		return (EPP_BALANCED);
 	}
 
-	if (load <= cpu_idle_mark)
+	if (load <= idle_mark)
 		return (lo);
-	if (load >= cpu_running_mark)
+	if (load >= running_mark)
 		return (hi);
 
 	/* Find a reasonable value between lo and hi. */
-	epp = lo - (lo - hi) * (load - cpu_idle_mark) /
-	    (cpu_running_mark - cpu_idle_mark);
+	epp = lo - (lo - hi) * (load - idle_mark) /
+	    (running_mark - idle_mark);
 
 	return (epp);
+}
+
+static void
+apply_epp(int detected_arch, int maxid, const int *v, int mode, int load,
+    int *cur_epp)
+{
+	int epp;
+
+	epp = calc_epp(mode, load);
+	if (epp != *cur_epp) {
+		(void)set_epp(detected_arch, maxid, v, epp);
+		*cur_epp = epp; /* do not retry (and warn) on every poll */
+		if (vflag)
+			printf("now operating on %s power; "
+			    "setting EPP to %d\n",
+			    modes[acline_status], epp);
+	}
 }
 
 static int
@@ -414,9 +490,48 @@ acline_init(void)
 	}
 }
 
+struct nlevent {
+	const char *name;
+	const char *subsystem;
+	const char *type;
+	const char *data;
+};
+#define	_OUT(_field)	offsetof(struct nlevent, _field)
+static struct snl_attr_parser ap_nlevent_get[] = {
+	{ .type = NLSE_ATTR_SYSTEM, .off = _OUT(name), .cb = snl_attr_get_string },
+	{ .type = NLSE_ATTR_SUBSYSTEM, .off = _OUT(subsystem), .cb = snl_attr_get_string },
+	{ .type = NLSE_ATTR_TYPE, .off = _OUT(type), .cb = snl_attr_get_string },
+	{ .type = NLSE_ATTR_DATA, .off = _OUT(data), .cb = snl_attr_get_string },
+};
+#undef _OUT
+
+SNL_DECLARE_GENL_PARSER(nlevent_get_parser, ap_nlevent_get);
+
 static void
-acline_read(void)
+acline_read(int rfds)
 {
+	if (acline_mode == ac_acpi_netlink) {
+		struct nlmsghdr *hdr;
+		struct nlevent ne;
+		char *ptr;
+		int notify;
+
+		if (rfds == 0)
+			return;
+		hdr = snl_read_message(&ss);
+		if (hdr != NULL && hdr->nlmsg_type != NLMSG_ERROR) {
+			memset(&ne, 0, sizeof(ne));
+			if (!snl_parse_nlmsg(&ss, hdr, &nlevent_get_parser, &ne))
+				return;
+			if (strcmp(ne.subsystem, "ACAD") != 0)
+				return;
+			if ((ptr = strstr(ne.data, "notify=")) != NULL &&
+			    sscanf(ptr, "notify=%x", &notify) == 1)
+				acline_status = (notify ? SRC_AC : SRC_BATTERY);
+		}
+		return;
+
+	}
 	if (acline_mode == ac_acpi_devd) {
 		char buf[DEVCTL_MAXBUF], *ptr;
 		ssize_t rlen;
@@ -472,10 +587,20 @@ acline_read(void)
 #else
 	if (acline_mode == ac_sysctl &&
 	    (acline_mode_user == ac_none ||
-	     acline_mode_user == ac_acpi_devd)) {
+	     acline_mode_user == ac_acpi_devd ||
+	     acline_mode_user == ac_acpi_netlink)) {
 #endif
 		struct timeval now;
 
+		if (acline_mode_user != ac_acpi_devd && try_netlink) {
+			try_netlink = false; /* only try once */
+			if (netlink_init()) {
+				if (vflag)
+					warnx("using netlink for AC line status");
+				acline_mode = ac_acpi_netlink;
+			}
+			return;
+		}
 		gettimeofday(&now, NULL);
 		if (now.tv_sec > tried_devd.tv_sec + DEVD_RETRY_INTERVAL) {
 			if (devd_init() >= 0) {
@@ -486,6 +611,30 @@ acline_read(void)
 			tried_devd = now;
 		}
 	}
+}
+
+bool
+netlink_init(void)
+{
+	uint32_t group;
+
+	if (modfind("nlsysevent") < 0)
+		kldload("nlsysevent");
+	if (modfind("nlsysevent") < 0)
+		return (false);
+
+	if (!snl_init(&ss, NETLINK_GENERIC) || (group =
+	    snl_get_genl_mcast_group(&ss, "nlsysevent", "ACPI", NULL)) == 0) {
+		warnx("Cannot find \"nlsysevent\" family \"ACPI\" group");
+		return (false);
+	}
+
+	if (setsockopt(ss.fd, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP, &group,
+	    sizeof(group)) == -1) {
+		warnx("Cannot subscribe to \"ACPI\"");
+		return (false);
+	}
+	return (true);
 }
 
 static int
@@ -549,6 +698,8 @@ parse_acline_mode(char *arg, int ch)
 	else if (strcmp(arg, "apm") == 0)
 		acline_mode_user = ac_apm;
 #endif
+	else if (strcmp(arg, "netlink") == 0)
+		acline_mode_user = ac_acpi_netlink;
 	else
 		errx(1, "bad option: -%c %s", (char)ch, optarg);
 }
@@ -574,7 +725,7 @@ main(int argc, char * argv[])
 {
 	struct timeval timeout;
 	fd_set fdset;
-	int nfds;
+	int nfds, rfds;
 	struct pidfh *pfh = NULL;
 	const char *pidfile = NULL;
 	int freq, curfreq, initfreq, *freqs, i, j, *mwatts, numfreqs, load;
@@ -583,8 +734,7 @@ main(int argc, char * argv[])
 	uint64_t mjoules_used;
 	size_t len;
 	int nonice;
-	int detected_arch, maxid, cur_epp, new_epp;
-	int has_cpufreq;
+	int detected_arch, maxid, cur_epp, has_cpufreq, nbad, *v = NULL;
 
 	/* Default mode for all AC states is adaptive. */
 	mode_ac = mode_none = MODE_HIADAPTIVE;
@@ -599,6 +749,7 @@ main(int argc, char * argv[])
 	detected_arch = -1;
 	maxid = 0;
 	cur_epp = -1;
+	nbad = 0;
 
 	/* User must be root to control frequencies. */
 	if (geteuid() != 0)
@@ -683,6 +834,21 @@ main(int argc, char * argv[])
 		if (vflag)
 			warnx("EPP enabled via hwpstate_%s(4), "
 			    "%d CPU(s)", arch[detected_arch], maxid + 1);
+
+		v = calloc(maxid + 1, sizeof(*v));
+		if (v == NULL)
+			err(1, "calloc");
+
+		nbad = 0;
+		for (i = 0; i <= maxid; i++) {
+			if ((v[i] = get_one_epp(detected_arch, i)) < 0)
+				nbad++;
+		}
+		if (nbad == (maxid + 1)) {
+			free(v);
+			errx(EX_UNAVAILABLE, "cannot read EPP of any CPU via "
+			    "hwpstate_%s(4)", arch[detected_arch]);
+		}
 	}
 
 	mode = mode_none;
@@ -700,21 +866,24 @@ main(int argc, char * argv[])
 	len = 4;
 	if (sysctlnametomib("dev.cpu.0.freq", freq_mib, &len) == 0) {
 		len = 4;
-		if (sysctlnametomib("dev.cpu.0.freq_levels", levels_mib, &len) == 0)
+		if (sysctlnametomib("dev.cpu.0.freq_levels", levels_mib,
+		    &len) == 0)
 			has_cpufreq = 1;
 	}
+	if (has_cpufreq) {
+		/* An information-only driver has no levels to read. */
+		if (read_freqs(&numfreqs, &freqs, &mwatts, minfreq, maxfreq)
+		    != 0)
+			has_cpufreq = 0;
+		else if (numfreqs == 0)
+			errx(1, "no CPU frequencies in user-specified range");
+	}
 	if (!has_cpufreq && !eflag)
-		errx(EX_UNAVAILABLE, "no cpufreq(4) support and EPP not enabled (-e)");
+		errx(EX_UNAVAILABLE, "no usable cpufreq(4) support; try -e");
 
 	/* Check if we can read the load and supported freqs. */
 	if (read_usage_times(NULL, nonice))
 		err(1, "read_usage_times");
-	if (has_cpufreq) {
-		if (read_freqs(&numfreqs, &freqs, &mwatts, minfreq, maxfreq))
-			err(1, "error reading supported CPU frequencies");
-		if (numfreqs == 0)
-			errx(1, "no CPU frequencies in user-specified range");
-	}
 
 	/* Run in the background unless in verbose mode. */
 	if (!vflag) {
@@ -757,7 +926,7 @@ main(int argc, char * argv[])
 	 * If we are in adaptive mode and the current frequency is outside the
 	 * user-defined range, adjust it to be within the user-defined range.
 	 */
-	acline_read();
+	acline_read(0);
 	if (acline_status > SRC_UNKNOWN)
 		errx(1, "invalid AC line status %d", acline_status);
 	if (has_cpufreq &&
@@ -803,6 +972,9 @@ main(int argc, char * argv[])
 		if (devd_pipe >= 0) {
 			FD_SET(devd_pipe, &fdset);
 			nfds = devd_pipe + 1;
+		} else if (acline_mode == ac_acpi_netlink) {
+			FD_SET(ss.fd, &fdset);
+			nfds = ss.fd + 1;
 		} else {
 			nfds = 0;
 		}
@@ -814,7 +986,7 @@ main(int argc, char * argv[])
 			to = poll_ival * 4;
 		timeout.tv_sec = to / 1000000;
 		timeout.tv_usec = to % 1000000;
-		select(nfds, &fdset, NULL, &fdset, &timeout);
+		rfds = select(nfds, &fdset, NULL, &fdset, &timeout);
 
 		/* If the user requested we quit, print some statistics. */
 		if (exit_requested) {
@@ -826,7 +998,7 @@ main(int argc, char * argv[])
 		}
 
 		/* Read the current AC status and record the mode. */
-		acline_read();
+		acline_read(rfds);
 		switch (acline_status) {
 		case SRC_AC:
 			mode = mode_ac;
@@ -855,6 +1027,11 @@ main(int argc, char * argv[])
 				    (mwatts[i] * (poll_ival / 1000)) / 1000;
 		}
 
+		/* Min and max modes do not depend on the load. */
+		if (eflag && (mode == MODE_MIN || mode == MODE_MAX))
+			apply_epp(detected_arch, maxid, v, mode, 0,
+			    &cur_epp);
+
 		/* Always switch to the lowest frequency in min mode. */
 		if (has_cpufreq && mode == MODE_MIN) {
 			freq = freqs[numfreqs - 1];
@@ -872,24 +1049,6 @@ main(int argc, char * argv[])
 				}
 			}
 			continue;
-		}
-
-		if (eflag) {
-			if (mode == MODE_MIN || mode == MODE_MAX) {
-				new_epp = calc_epp(mode, 0);
-				if (new_epp != cur_epp) {
-					if (set_epp(detected_arch, maxid, new_epp) == 0)
-						cur_epp = new_epp;
-				}
-				if (!has_cpufreq)
-					continue;
-			} else if (mode == MODE_ADAPTIVE || mode == MODE_HIADAPTIVE) {
-				new_epp = calc_epp(mode, load);
-				if (new_epp != cur_epp) {
-					if (set_epp(detected_arch, maxid, new_epp) == 0)
-						cur_epp = new_epp;
-				}
-			}
 		}
 
 		/* Always switch to the highest frequency in max mode. */
@@ -911,12 +1070,21 @@ main(int argc, char * argv[])
 			continue;
 		}
 
+		if (mode == MODE_MIN || mode == MODE_MAX)
+			continue;	/* no cpufreq(4), EPP already set */
+
 		/* Adaptive mode; get the current CPU usage times. */
 		if (read_usage_times(&load, nonice)) {
 			if (vflag)
 				warn("read_usage_times() failed");
 			continue;
 		}
+
+		if (eflag)
+			apply_epp(detected_arch, maxid, v, mode,
+			    load, &cur_epp);
+		if (!has_cpufreq)
+			continue;
 
 		if (mode == MODE_ADAPTIVE) {
 			if (load > cpu_running_mark) {
@@ -973,6 +1141,10 @@ main(int argc, char * argv[])
 			warn("error setting CPU frequency %d", initfreq);
 		free(freqs);
 		free(mwatts);
+	}
+	if (eflag) {
+		restore_epp(detected_arch, maxid, v);
+		free(v);
 	}
 	devd_close();
 	if (!vflag)
