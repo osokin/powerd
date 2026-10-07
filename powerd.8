@@ -110,6 +110,7 @@ have no effect.
 with a working
 .Xr cpufreq 4
 sets both controls.
+The EPP values may change on every poll.
 The initial EPP values are restored only when
 .Nm
 is stopped by
@@ -195,6 +196,13 @@ added features, and wrote this manual page.
 then updated it for
 .Xr hwpstate_intel 4
 support.
+.Sh CAVEATS
+The code for
+.Fl e
+assumes that hwpstate unit N belongs to CPU N for every id up to
+.Va kern.smp.maxid .
+A missing unit is handled, but a machine with shifted numbering
+would be controlled through the wrong units without any warning.
 .Sh BUGS
 The
 .Nm
